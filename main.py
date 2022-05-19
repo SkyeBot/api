@@ -1,4 +1,6 @@
+import datetime
 import time
+from typing import Optional
 from quart import Quart, render_template, request, jsonify
 import discord
 from discord.ext import commands
@@ -11,29 +13,43 @@ ssl_object = ssl.create_default_context()
 ssl_object.check_hostname = False
 ssl_object.verify_mode = ssl.CERT_NONE
 
-class MyBot(commands.Bot):
-
+class MyBot(discord.Client):
     def __init__(self, *args, **kwargs):
+        self._connected = False
+        self.startup_time: Optional[datetime.timedelta] = None
+        self.start_time = discord.utils.utcnow()
         super().__init__(*args, **kwargs)
     
-        
+    async def on_ready(self):
+        if self._connected:
+            msg = f"Bot reconnected at {datetime.now().strftime('%b %d %Y %H:%M:%S')}"
+            print(msg)        
+        else:
+            self._connected = True
+            self.startup_time = discord.utils.utcnow() - self.start_time
+            msg = (
+                f"Successfully logged into {self.user}. ({round(self.latency * 1000)}ms)\n"
+                f"Startup Time: {self.startup_time.total_seconds():.2f} seconds."
+            )
+            print(msg)
 
     async def setup_hook(self):
-        self.loop.create_task(app.run_task(port= 7070,debug=True)) 
+        self.loop.create_task(app.run_task(port= 6060,debug=True)) 
+
+
 async def get_prefix(client, message):
     try:
-      defualt_prefix = "skye "
-      if not message.guild:
-        return commands.when_mentioned_or(defualt_prefix)(client, message)
+        defualt_prefix = "skye "
+        if not message.guild:
+            return commands.when_mentioned_or(defualt_prefix)(client, message)
 
-      prefix = await bot.db.fetch('SELECT prefix FROM guilds WHERE guild_id = $1', message.guild.id)
-      if len(prefix) == 0:
-        await bot.db.execute('INSERT INTO guilds(guild_id, prefix) VALUES ($1, $2)', message.guild.id, defualt_prefix)
-      else: 
-          prefix = prefix[0].get("prefix")
+        prefix = await bot.db.fetchrow('SELECT prefix FROM guilds WHERE guild_id = $1', message.guild.id)
 
+
+        a = prefix.get("prefix")
+        print(a)
     
-      return commands.when_mentioned_or(prefix, defualt_prefix)(client,message)
+        return commands.when_mentioned_or(a, defualt_prefix)(client,message)
     except TypeError:
       pass
 
@@ -42,11 +58,8 @@ async def create_db_pool():
         print('Connection to POSTGRESQL')
 
 app = Quart(__name__)
-bot = MyBot(command_prefix="12",intents=discord.Intents.all())
+bot = MyBot(intents=discord.Intents.all())
 
-@bot.event
-async def on_ready():
-    print("hi")
 
 @app.route("/bot/stats")
 async def api():
@@ -69,7 +82,7 @@ async def api():
         "ping": {
             "type":"ws",
             "ws":before_ws,
-            "rest":int(ping)
+            "rest":f"{int(round(bot.latency * 1000))}"
         },
     }
 
@@ -93,6 +106,7 @@ async def servers():
     prefix_fetch = await bot.db.fetchrow("SELECT prefix FROM GUILDS WHERE guild_id = $1", server.id)
 
     prefix = prefix_fetch.get("prefix")
+    print(prefix)
     if boosters == None:
         return "None"
     
@@ -117,7 +131,22 @@ async def servers():
 @app.route('/bot/users')
 async def users():
     id = request.args.get('id', default = None, type = int)
-    
+    user = await bot.fetch_user(id)
+    guild_ids = []
+    for guild in user.mutual_guilds:
+        guild_ids.append(guild.id)
+    data = {
+        f"{user.name}#{user.discriminator}":{
+            "id":f"{user.id}",
+            "discriminator":user.discriminator,
+            "avatar":user.avatar.url,
+            "banner":user.banner.url 
+        },
+        "mutual_guilds":guild_ids
+    }
+
+    return jsonify(data)
+        
 async def main():
     async with bot:
         bot.wait_until_ready
