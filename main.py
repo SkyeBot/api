@@ -132,17 +132,17 @@ async def servers():
 async def users():
     id = request.args.get('id', default = None, type = int)
     user = await bot.fetch_user(id)
-    guild_ids = []
-    for guild in user.mutual_guilds:
-        guild_ids.append(guild.id)
+
     data = {
         f"{user.name}#{user.discriminator}":{
             "id":f"{user.id}",
             "discriminator":user.discriminator,
-            "avatar":user.avatar.url,
-            "banner":user.banner.url 
+            "avatar":user.display_avatar.url,
+            "banner":user.banner.url if user.banner else "No Banner"
         },
-        "mutual_guilds":guild_ids
+        "mutual_guilds":{
+            "ids":[g.id for g in user.mutual_guilds]
+        }
     }
 
     return jsonify(data)
